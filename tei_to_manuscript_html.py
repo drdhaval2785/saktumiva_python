@@ -63,8 +63,9 @@ def render_supplied(el):
 
 
 def render_surplus(el):
-    # Surplus text = Brown strikethrough
-    return f'<span class="surplus">{"".join(escape(t) for t in el.itertext())}</span>'
+    reason = el.attrib.get("reason", "")
+    tooltip = f' title="{escape(reason)}"' if reason else ""
+    return f'<span class="surplus"{tooltip}>{"".join(escape(t) for t in el.itertext())}</span>'
 
 
 def render_choice(el):
@@ -137,8 +138,7 @@ def render_element(el, page=None):
         return ""
     elif tag == "pb":
         n = el.attrib.get("n", "?")
-        # handled at top level (tei_to_html); return marker only
-        return f'<!-- page break: {escape(n)} -->'
+        return f'<hr/><div class="page-number">Page {escape(n)}</div>'
     elif tag == "div":
         # Treat div as a wrapper: keep its children and a heading if available
         head = el.find("./{*}head")
@@ -192,7 +192,7 @@ def tei_to_html(infile, outfile):
         body { background:#ffffff; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem; } 
         .folio { width:90%; margin:1rem auto; background:#ffffff; border:none; box-shadow:none; padding:1rem; position:relative; }
         .folio-inner { line-height:1.9; font-size:1.1rem; color:#2a1e0e; }
-        .page-number { position:absolute; right:1rem; top:0.6rem; color:#555; font-size:0.9rem;}
+        .page-number { text-align:center;font-weight:bold;margin:0.5em 0;}
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
         .add { color:#b58900; background:#fff9d9; cursor:help; } /* yellow tone */
         .del { color:#777; text-decoration:line-through; }
