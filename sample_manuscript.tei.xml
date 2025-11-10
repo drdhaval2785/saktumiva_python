@@ -3,20 +3,14 @@
   <teiHeader>
     <fileDesc>
       <titleStmt>
-        <title>Dummy Sanskrit Manuscript (v2)</title>
-        <resp>For manuscript-style HTML conversion test</resp>
+        <title>Meghadūtam — Dummy Manuscript Sample</title>
+        <author>Kālidāsa</author>
       </titleStmt>
       <publicationStmt>
-        <publisher>Demo Converter</publisher>
-        <date when="2025-11-10">2025-11-10</date>
+        <p>Prepared for manuscript layout testing</p>
       </publicationStmt>
       <sourceDesc>
-        <msDesc>
-          <msIdentifier>
-            <repository>Imaginary Archive</repository>
-            <idno>MS-001</idno>
-          </msIdentifier>
-        </msDesc>
+        <p>Artificial reconstruction using public-domain Sanskrit text</p>
       </sourceDesc>
     </fileDesc>
   </teiHeader>
@@ -24,71 +18,64 @@
   <text>
     <body>
 
-      <!-- PAGE 1 -->
+      <!-- Folio 1 -->
       <pb n="1"/>
-      <div type="chapter" xml:id="p1">
-        <head>Prathama Patra (Page 1)</head>
+      <head>प्रथम पत्र</head>
 
-        <p>अथ <choice><sic>पाठ</sic><corr>पाठः</corr></choice> आरभ्यते।</p>
+      <p>
+        <sic>कश्चि</sic><corr>कश्चित्</corr> <add place="right">कान्ताविरहगुरुणा</add> शापेन <sic>विह्वलः</sic> <corr>विह्वलः</corr>।
+        <add place="top">संध्याछायामुपगतमिव</add> <sic>मेघम</sic><corr>मेघम्</corr> आलोकयन्।
+      </p>
 
-        <p>
-          एषः <add place="interline">शुद्धः</add> श्लोकः अस्ति।
-          <note place="left">Left margin note — commentary by later hand.</note>
-        </p>
+      <p>
+        तं <sic>दृष्ट्वा</sic> <corr>दृष्ट्वा</corr> <del>सस्मर</del> प्रियवचनं <add place="bottom">मधुरस्मितम् अपि</add> तस्याः।
+        <add place="right">अश्रुपूर्णाक्षि</add> <sic>सखि</sic><corr>सखि</corr> इव <sic>प्रत्यभाषत</sic><corr>प्रत्यभाषत</corr> मेघम्।
+      </p>
 
-        <p>
-          <del>दोषयुक्तः</del> पाठः इत्युक्तम्।
-          <note place="right">Right margin note — editor's warning.</note>
-        </p>
+      <p>
+        <sic>एतस्मिन्न</sic><corr>एतस्मिन्न्</corr> अवसरे <del>मत्तकुक्कुटः</del> यक्षः <add place="left">रामगिरौ</add> स्थितः।
+        <add place="bottom">सन्देशं प्रेषयामास प्रियायै।</add>
+      </p>
 
-        <p>
-          तत्र <note place="top">Top margin note: reference to another folio.</note>
-          शुद्धलेखः दृश्यते।
-        </p>
 
-        <p>
-          <note place="bottom">Bottom margin note: possible scribal insertion.</note>
-          इत्यमरः।
-        </p>
-      </div>
-
-      <!-- PAGE 2 -->
+      <!-- Folio 2 -->
       <pb n="2"/>
-      <div type="chapter" xml:id="p2">
-        <head>Dvitīya Patra (Page 2)</head>
+      <head>द्वितीय पत्र</head>
 
-        <p>
-          अत्र <choice><sic>विद्य</sic><corr>विद्या</corr></choice> शब्दः प्रयुज्यते।
-          <add>समीकृतम्।</add>
-          <note place="top">Top note — gloss on विद्या.</note>
-        </p>
+      <p>
+        <sic>प्रत्याशासे</sic><corr>प्रत्याशासे</corr> <add place="top">प्रियदर्शनम्</add> इति <del>वदनं</del> <add place="bottom">वदनं मृदुहासितम्</add> उक्तवान्।
+        <add place="right">मेघं दूतं चकार</add> हृदयेन।
+      </p>
 
-        <p>
-          सः श्लोकः <add>संपादितः</add> पुनः पठनीयः।
-          <note place="left">Left note — duplicate version in another MS.</note>
-        </p>
+      <p>
+        <sic>गच्छ</sic><corr>गच्छ</corr> <add place="left">हे मेघ</add> <sic>अमरकण्टक</sic><corr>अमरकण्टकं</corr> नगरे।
+        <add place="bottom">तत्र मालवतीं नमस्कुरुष्व</add>।
+      </p>
 
-        <p>
-          अस्य <del>विवादः</del> न कश्चन।
-          <note place="bottom">Bottom note — marginal cross-reference.</note>
-        </p>
-      </div>
+      <p>
+        <sic>निर्गच्छन्</sic><corr>निर्गच्छन्</corr> यक्षः <del>कृशशरीरः</del> <add place="top">क्लान्तवपुः</add> चकार प्रणामम्।
+        <sic>स्वभर्त्रृ</sic><corr>स्वभर्तुः</corr> <add place="right">स्मरणेन स्रवदश्रु</add>।
+      </p>
 
-      <!-- PAGE 3 -->
+
+      <!-- Folio 3 -->
       <pb n="3"/>
-      <div type="chapter" xml:id="p3">
-        <head>Tṛtīya Patra (Page 3)</head>
+      <head>तृतीय पत्र</head>
 
-        <p>
-          इदानीं समापनम्।
-          <note place="right">Right margin note — end marker.</note>
-          <note place="bottom">Bottom note — later addition.</note>
-        </p>
+      <p>
+        <sic>स मेघः</sic><corr>स मेघः</corr> प्रस्थितः <add place="left">रम्यकाननानि</add>।
+        <add place="bottom">मरुदानन्दितद्रुमलता</add> <sic>निलयानि</sic><corr>निलयानि</corr> पश्यन्।
+      </p>
 
-        <p>
-          <add>समाप्तिः।</add>
-        </p>
-      </div>
+      <p>
+        <sic>वह</sic><corr>वह</corr> <add place="top">प्रियसन्देशम्</add> इति <del>करुणया</del> <corr>करुणया</corr>।
+        <add place="right">गङ्गातटं प्रति</add> मेघं प्रार्थयत्।
+      </p>
+
+      <p>
+        <sic>इति</sic><corr>इति</corr> <add place="bottom">श्लोकत्रयाणि लिखितानि</add>।
+        <add place="left">समाप्तिः।</add>
+      </p>
 
     </body>
   </text>
