@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt>
+        <title>Dummy Sanskrit Manuscript (v2)</title>
+        <resp>For manuscript-style HTML conversion test</resp>
+      </titleStmt>
+      <publicationStmt>
+        <publisher>Demo Converter</publisher>
+        <date when="2025-11-10">2025-11-10</date>
+      </publicationStmt>
+      <sourceDesc>
+        <msDesc>
+          <msIdentifier>
+            <repository>Imaginary Archive</repository>
+            <idno>MS-001</idno>
+          </msIdentifier>
+        </msDesc>
+      </sourceDesc>
+    </fileDesc>
+  </teiHeader>
+
+  <text>
+    <body>
+
+      <!-- PAGE 1 -->
+      <pb n="1"/>
+      <div type="chapter" xml:id="p1">
+        <head>Prathama Patra (Page 1)</head>
+
+        <p>अथ <choice><sic>पाठ</sic><corr>पाठः</corr></choice> आरभ्यते।</p>
+
+        <p>
+          एषः <add place="interline">शुद्धः</add> श्लोकः अस्ति।
+          <note place="left">Left margin note — commentary by later hand.</note>
+        </p>
+
+        <p>
+          <del>दोषयुक्तः</del> पाठः इत्युक्तम्।
+          <note place="right">Right margin note — editor's warning.</note>
+        </p>
+
+        <p>
+          तत्र <note place="top">Top margin note: reference to another folio.</note>
+          शुद्धलेखः दृश्यते।
+        </p>
+
+        <p>
+          <note place="bottom">Bottom margin note: possible scribal insertion.</note>
+          इत्यमरः।
+        </p>
+      </div>
+
+      <!-- PAGE 2 -->
+      <pb n="2"/>
+      <div type="chapter" xml:id="p2">
+        <head>Dvitīya Patra (Page 2)</head>
+
+        <p>
+          अत्र <choice><sic>विद्य</sic><corr>विद्या</corr></choice> शब्दः प्रयुज्यते।
+          <add>समीकृतम्।</add>
+          <note place="top">Top note — gloss on विद्या.</note>
+        </p>
+
+        <p>
+          सः श्लोकः <add>संपादितः</add> पुनः पठनीयः।
+          <note place="left">Left note — duplicate version in another MS.</note>
+        </p>
+
+        <p>
+          अस्य <del>विवादः</del> न कश्चन।
+          <note place="bottom">Bottom note — marginal cross-reference.</note>
+        </p>
+      </div>
+
+      <!-- PAGE 3 -->
+      <pb n="3"/>
+      <div type="chapter" xml:id="p3">
+        <head>Tṛtīya Patra (Page 3)</head>
+
+        <p>
+          इदानीं समापनम्।
+          <note place="right">Right margin note — end marker.</note>
+          <note place="bottom">Bottom note — later addition.</note>
+        </p>
+
+        <p>
+          <add>समाप्तिः।</add>
+        </p>
+      </div>
+
+    </body>
+  </text>
+</TEI>
