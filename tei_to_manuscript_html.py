@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-# tei_to_manuscript_final3.py
-# Adds: clickable footnotes, quote tooltip, kāṇḍa split, add tooltips (no arrows)
+# tei_to_manuscript_final4.py
+# Fix: preserves normal text, keeps <div> content properly, handles lb break="no", adds surplus tag
 
 import xml.etree.ElementTree as ET
 from html import escape
-import sys
 
-SKIP_NOTE_IDS = {"HND", "CSP", "FR"}  # skip completely
+SKIP_NOTE_IDS = {"HND", "CSP", "FR"}  # notes to skip completely
+
 
 def localname(tag):
+    """Extract local name from namespaced tag."""
     if not tag:
         return ""
-    if isinstance(tag, str):
-        return tag.split("}")[-1] if "}" in tag else tag
-    return str(tag).split("}")[-1]
+    return tag.split("}")[-1] if "}" in tag else tag
+
 
 class Page:
     def __init__(self, pid):
@@ -21,7 +21,10 @@ class Page:
         self.html_parts = []
         self.footnotes = []
         self.fn_counter = 1
-    def add(self, html): self.html_parts.append(html)
+
+    def add(self, html):
+        self.html_parts.append(html)
+
     def add_foot(self, txt):
         num = self.fn_counter
         self.fn_counter += 1
@@ -29,13 +32,16 @@ class Page:
         self.footnotes.append((num, txt))
         return f'<sup id="ref{num}"><a href="#{fid}" title="Jump to note {num}">{num}</a></sup>'
 
+
 # ---------- Render helpers ----------
 
 def render_lb(el):
     n = el.attrib.get("n", "")
     br = el.attrib.get("break", "yes")
-    dash = "-" if br == "no" else ""
-    return f'<br/><span class="linenum">{escape(n)}</span>{dash}'
+    # break=no → append hyphen directly to previous word, then line break
+    if br == "no":
+        return f'-<br/><span class="linenum">{escape(n)}</span>'
+    return f'<br/><span class="linenum">{escape(n)}</span>'
 
 def render_add(el):
     place = el.attrib.get("place", "")
@@ -43,14 +49,23 @@ def render_add(el):
     text = ''.join(escape(t) for t in el.itertext())
     return f'<span class="add" title="{tooltip}">{text}</span>'
 
+
 def render_del(el):
     return f'<span class="del">{"".join(escape(t) for t in el.itertext())}</span>'
+
 
 def render_unclear(el):
     return f'<span class="unclear">{"".join(escape(t) for t in el.itertext())}</span>'
 
+
 def render_supplied(el):
     return f'<sup class="supplied">{"".join(escape(t) for t in el.itertext())}</sup>'
+
+
+def render_surplus(el):
+    # Surplus text = Brown strikethrough
+    return f'<span class="surplus">{"".join(escape(t) for t in el.itertext())}</span>'
+
 
 def render_choice(el):
     orig = el.find(".//{*}orig")
@@ -59,32 +74,39 @@ def render_choice(el):
         return f'<span class="choice" title="orig: {escape("".join(orig.itertext()))}">{escape("".join(corr.itertext()))}</span>'
     return ''.join(render_element(c) for c in el)
 
+
 def render_quote(el):
     src = el.attrib.get("source", "")
     title = f'title="{escape(src)}"' if src else ""
     out = []
-    if el.text: out.append(escape(el.text))
+    if el.text:
+        out.append(escape(el.text))
     for c in el:
         tag = localname(c.tag)
         if tag == "lb":
             out.append(render_lb(c))
-        elif tag == "unclear":
-            out.append(render_unclear(c))
         else:
             out.append(render_element(c))
-        if c.tail: out.append(escape(c.tail))
+        if c.tail:
+            out.append(escape(c.tail))
     return f'<span class="quote" {title}>{"".join(out)}</span>'
 
+
 def render_element(el, page=None):
-    """Recursively render TEI -> HTML preserving all unmarked text."""
     tag = localname(el.tag)
     out = ""
+    
+    # Add hover tooltip if "reason" attribute exists
+    reason = el.attrib.get("reason")
+    if reason:
+        out += f'<span title="{escape(reason)}">'
 
-    # --- pre-text ---
+
+    # preserve pre-text
     if el.text:
         out += escape(el.text)
 
-    # --- tag handling ---
+    # tag-based rendering
     if tag == "lb":
         return render_lb(el)
     elif tag == "add":
@@ -95,6 +117,8 @@ def render_element(el, page=None):
         return render_unclear(el)
     elif tag == "supplied":
         return render_supplied(el)
+    elif tag == "surplus":
+        return render_surplus(el)
     elif tag == "choice":
         return render_choice(el)
     elif tag == "quote":
@@ -113,30 +137,30 @@ def render_element(el, page=None):
         return ""
     elif tag == "pb":
         n = el.attrib.get("n", "?")
-        return f'</div></div><div class="folio"><div class="folio-inner"><div class="page-number">{escape(n)}</div>'
+        # handled at top level (tei_to_html); return marker only
+        return f'<!-- page break: {escape(n)} -->'
     elif tag == "div":
-        # mid-line insertion → split line into a/b
-        if el.attrib.get("type") == "kāṇḍa":
-            kid = el.attrib.get("id", "")
-            part = el.attrib.get("part", "")
-            if part:
-                label = f"{kid}{part}"
-            else:
-                label = kid
-            out += f'<h2 class="kanda">{escape(label)}</h2>'
-    elif tag == "hi":
-        rend = el.attrib.get("rend", "")
-        inner = ''.join(render_element(c) for c in el)
-        if rend == "redfont":
-            return f'<span class="redfont">{inner}</span>'
-        return inner
+        # Treat div as a wrapper: keep its children and a heading if available
+        head = el.find("./{*}head")
+        if head is not None:
+            out += f"<h2>{escape(''.join(head.itertext()))}</h2>"
+        for c in el:
+            if localname(c.tag) != "head":
+                out += render_element(c, page)
+                if c.tail:
+                    out += escape(c.tail)
+        return out
 
-    # --- children recursion ---
+    # recursive child handling
     for c in el:
         out += render_element(c, page)
         if c.tail:
             out += escape(c.tail)
+    if el.attrib.get("reason"):
+        out += '</span>'
+    
     return out
+
 
 # ---------- Converter ----------
 
@@ -152,26 +176,27 @@ def tei_to_html(infile, outfile):
     pages.append(current)
 
     for child in list(body):
-        if localname(child.tag) == "pb":
+        tag = localname(child.tag)
+        if tag == "pb":
+            # start new page
             current = Page(child.attrib.get("n", "?"))
             pages.append(current)
-            current.add(f'<div class="page-number">{escape(child.attrib.get("n", "?"))}</div>')
             continue
         frag = render_element(child, current)
-        if frag.strip(): current.add(frag)
+        if frag.strip():
+            current.add(frag)
 
-    # HTML output
     html = [
         "<!doctype html><html lang='sa'><head><meta charset='utf-8'><title>Manuscript</title><style>",
         """
-        body { background:#f8f2e4; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem;}
-        .folio { width:70%; margin:2rem auto; background:#fffef9; border:1px solid #ccc;
-                 box-shadow:0 5px 15px rgba(0,0,0,0.1); padding:2.5rem; position:relative; }
+        body { background:#ffffff; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem; } 
+        .folio { width:90%; margin:1rem auto; background:#ffffff; border:none; box-shadow:none; padding:1rem; position:relative; }
         .folio-inner { line-height:1.9; font-size:1.1rem; color:#2a1e0e; }
         .page-number { position:absolute; right:1rem; top:0.6rem; color:#555; font-size:0.9rem;}
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
         .add { color:#b58900; background:#fff9d9; cursor:help; } /* yellow tone */
         .del { color:#777; text-decoration:line-through; }
+        .surplus { color:#5a2a00; text-decoration:line-through; }
         .unclear { color:#b00; padding:0 0.15em; border-radius:3px; }
         .quote  { color:#0044cc; background:#eaf1ff; border-radius:3px; padding:0 0.15em; cursor:help; }
         .choice { color:#5a2a00; background:#f7e8d9; border-bottom:1px dotted #b55; }
@@ -182,6 +207,7 @@ def tei_to_html(infile, outfile):
         .legend { background:#fffbe6; border:1px solid #f0d890; padding:0.7rem 1rem; margin-bottom:1rem;
                   border-radius:6px; font-size:0.95rem;}
         .legend .item { margin:0.25rem 0;}
+        h2 { text-align:center; color:#5a2a00; margin:1rem 0; }
         """,
         "</style></head><body>"
     ]
@@ -193,6 +219,7 @@ def tei_to_html(infile, outfile):
 	  <div class="item"><span style="color:#5a2a00">Brown</span> — Editorial choice</div>
 	  <div class="item"><span style="color:#b00">Red</span> — Unclear text</div>
 	  <div class="item"><span style="color:#777;text-decoration:line-through;">Gray strikethrough</span> — Deleted text</div>
+      <div class="item"><span style="color:#5a2a00;text-decoration:line-through;">Brown strikethrough</span> — Surplus text (removed by editor)</div>
 	</div>    
 	"""
 
@@ -200,7 +227,8 @@ def tei_to_html(infile, outfile):
         if i == 0 and not any(s.strip() for s in pg.html_parts):
             continue
         html.append("<div class='folio'><div class='folio-inner'>")
-        if i <= 1: html.append(legend)
+        if i <= 1:
+            html.append(legend)
         html.append(''.join(pg.html_parts))
         if pg.footnotes:
             html.append('<div class="footnotes"><ol>')
@@ -217,7 +245,7 @@ def tei_to_html(infile, outfile):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (v5)")
+    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (final v4)")
     parser.add_argument("input", help="Input TEI XML file")
     parser.add_argument("output", help="Output HTML file")
     args = parser.parse_args()
