@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# tei_to_manuscript_final4.py
-# Fix: preserves normal text, keeps <div> content properly, handles lb break="no", adds surplus tag
+# tei_to_manuscript_final5.py
+# Fix: preserves normal text, handles lb break="no", surplus tooltips, bibliographic tooltips for <quote>
 
 import xml.etree.ElementTree as ET
 from html import escape
 
 SKIP_NOTE_IDS = {"HND", "CSP", "FR"}  # notes to skip completely
+BIBLIO = {}  # will store xml:id → "Title – Author" mapping
 
 
 def localname(tag):
@@ -43,6 +44,7 @@ def render_lb(el):
         return f'-<br/><span class="linenum">{escape(n)}</span>'
     return f'<br/><span class="linenum">{escape(n)}</span>'
 
+
 def render_add(el):
     place = el.attrib.get("place", "")
     tooltip = place if place else "supplied"
@@ -78,7 +80,22 @@ def render_choice(el):
 
 def render_quote(el):
     src = el.attrib.get("source", "")
-    title = f'title="{escape(src)}"' if src else ""
+    tooltip = ""
+
+    # Handle multiple #ids like "#AMAR #AKKS"
+    if src:
+        parts = src.split()
+        items = []
+        for part in parts:
+            if part.startswith("#"):
+                key = part[1:]
+                if key in BIBLIO:
+                    items.append(BIBLIO[key])
+            else:
+                items.append(part)
+        tooltip = "; ".join(items)
+    title = f'title="{escape(tooltip)}"' if tooltip else ""
+
     out = []
     if el.text:
         out.append(escape(el.text))
@@ -101,7 +118,6 @@ def render_element(el, page=None):
     reason = el.attrib.get("reason")
     if reason:
         out += f'<span title="{escape(reason)}">'
-
 
     # preserve pre-text
     if el.text:
@@ -135,12 +151,11 @@ def render_element(el, page=None):
             return ""
         if resp == "editorial" and page:
             return page.add_foot(''.join(el.itertext()).strip())
-        return ""
+        return ''.join(render_element(c) for c in el)
     elif tag == "pb":
         n = el.attrib.get("n", "?")
         return f'<hr/><div class="page-number">Page {escape(n)}</div>'
     elif tag == "div":
-        # Treat div as a wrapper: keep its children and a heading if available
         head = el.find("./{*}head")
         if head is not None:
             out += f"<h2>{escape(''.join(head.itertext()))}</h2>"
@@ -167,6 +182,19 @@ def render_element(el, page=None):
 def tei_to_html(infile, outfile):
     ns = {'tei': 'http://www.tei-c.org/ns/1.0'}
     root = ET.parse(infile).getroot()
+
+    # Collect bibliographic metadata from all listBibl blocks
+    for bibl in root.findall(".//tei:listBibl//tei:bibl", ns):
+        bid = bibl.attrib.get("{http://www.w3.org/XML/1998/namespace}id")
+        if not bid:
+            continue
+        title = bibl.findtext("tei:title", "", ns).strip()
+        author = bibl.findtext("tei:author", "", ns).strip()
+        if title and author:
+            BIBLIO[bid] = f"{title} – {author}"
+        else:
+            BIBLIO[bid] = title or author
+
     body = root.find('.//tei:text/tei:body', ns)
     if body is None:
         print("No <body>")
@@ -178,7 +206,6 @@ def tei_to_html(infile, outfile):
     for child in list(body):
         tag = localname(child.tag)
         if tag == "pb":
-            # start new page
             current = Page(child.attrib.get("n", "?"))
             pages.append(current)
             continue
@@ -196,7 +223,7 @@ def tei_to_html(infile, outfile):
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
         .add { color:#b58900; background:#fff9d9; cursor:help; } /* yellow tone */
         .del { color:#777; text-decoration:line-through; }
-        .surplus { color:#5a2a00; text-decoration:line-through; }
+        .surplus { text-decoration: line-through gray 2px; text-decoration-thickness: 2px; text-decoration-color: gray; text-decoration-skip-ink: none; display: inline-block; position: relative; transform: translateY(-0.15em); }
         .unclear { color:#b00; padding:0 0.15em; border-radius:3px; }
         .quote  { color:#0044cc; background:#eaf1ff; border-radius:3px; padding:0 0.15em; cursor:help; }
         .choice { color:#5a2a00; background:#f7e8d9; border-bottom:1px dotted #b55; }
@@ -245,7 +272,7 @@ def tei_to_html(infile, outfile):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (final v4)")
+    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (final v5)")
     parser.add_argument("input", help="Input TEI XML file")
     parser.add_argument("output", help="Output HTML file")
     args = parser.parse_args()
