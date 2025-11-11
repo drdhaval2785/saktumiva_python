@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-# tei_to_manuscript_final5.py
-# Fix: preserves normal text, handles lb break="no", surplus tooltips, bibliographic tooltips for <quote>
+# tei_to_manuscript_html.py
+# Final version: inline verse-commentary, verse in green font.
 
 import xml.etree.ElementTree as ET
 from html import escape
 
-SKIP_NOTE_IDS = {"HND", "CSP", "FR"}  # notes to skip completely
-BIBLIO = {}  # will store xml:id → "Title – Author" mapping
+SKIP_NOTE_IDS = {"HND", "CSP", "FR"}
+BIBLIO = {}
 
 
 def localname(tag):
-    """Extract local name from namespaced tag."""
     if not tag:
         return ""
     return tag.split("}")[-1] if "}" in tag else tag
@@ -39,7 +38,6 @@ class Page:
 def render_lb(el):
     n = el.attrib.get("n", "")
     br = el.attrib.get("break", "yes")
-    # break=no → append hyphen directly to previous word, then line break
     if br == "no":
         return f'-<br/><span class="linenum">{escape(n)}</span>'
     return f'<br/><span class="linenum">{escape(n)}</span>'
@@ -68,7 +66,7 @@ def render_unclear(el, page=None):
 
 
 def render_supplied(el):
-    return f'<sup class="supplied">{"".join(escape(t) for t in el.itertext())}</sup>'
+    return f'<span class="supplied">{"".join(escape(t) for t in el.itertext())}</span>'
 
 
 def render_surplus(el):
@@ -89,7 +87,6 @@ def render_quote(el):
     src = el.attrib.get("source", "")
     tooltip = ""
 
-    # Handle multiple #ids like "#AMAR #AKKS"
     if src:
         parts = src.split()
         items = []
@@ -117,20 +114,18 @@ def render_quote(el):
     return f'<span class="quote" {title}>{"".join(out)}</span>'
 
 
+# ---------- Recursive renderer ----------
+
 def render_element(el, page=None):
     tag = localname(el.tag)
     out = ""
-    
-    # Add hover tooltip if "reason" attribute exists
+
     reason = el.attrib.get("reason")
     if reason:
         out += f'<span title="{escape(reason)}">'
 
-    # preserve pre-text
-    if el.text:
-        out += escape(el.text)
+    text_before = escape(el.text) if el.text else ""
 
-    # tag-based rendering
     if tag == "lb":
         return render_lb(el)
     elif tag == "add":
@@ -138,7 +133,7 @@ def render_element(el, page=None):
     elif tag == "del":
         return render_del(el)
     elif tag == "unclear":
-        return render_unclear(el)
+        return render_unclear(el, page)
     elif tag == "supplied":
         return render_supplied(el)
     elif tag == "surplus":
@@ -163,7 +158,7 @@ def render_element(el, page=None):
             return ""
         if resp == "editorial" and page:
             return page.add_foot(''.join(el.itertext()).strip())
-        return ''.join(render_element(c) for c in el)
+        return ''.join(render_element(c, page) for c in el)
     elif tag == "pb":
         n = el.attrib.get("n", "?")
         return f'<hr/><div class="page-number">Page {escape(n)}</div>'
@@ -178,15 +173,43 @@ def render_element(el, page=None):
                     out += escape(c.tail)
         return out
 
-    # recursive child handling
+    # Verse (<lg>)
+    elif tag == "lg":
+        xmlid = el.attrib.get("{http://www.w3.org/XML/1998/namespace}id", "")
+        out = f"<span class='verse' data-id='{xmlid}'>{text_before}"
+        for c in el:
+            out += render_element(c, page)
+            if c.tail:
+                out += escape(c.tail)
+        out += "</span>"
+        return out
+
+    # Commentary (<p>)
+    elif tag == "p":
+        xmlid = el.attrib.get("{http://www.w3.org/XML/1998/namespace}id", "")
+        classes = []
+        data_target = ""
+        if xmlid.startswith("c"):
+            classes.append("commentary")
+            base = xmlid.split("-")[0].replace("c", "v")
+            data_target = f" data-target='{base}'"
+        out = f"<span class='{' '.join(classes)}'{data_target}>{text_before}"
+        for c in el:
+            out += render_element(c, page)
+            if c.tail:
+                out += escape(c.tail)
+        out += "</span>"
+        return out
+
     for c in el:
         out += render_element(c, page)
         if c.tail:
             out += escape(c.tail)
+
     if el.attrib.get("reason"):
-        out += '</span>'
-    
-    return out
+        out += "</span>"
+
+    return text_before + out
 
 
 # ---------- Converter ----------
@@ -195,7 +218,6 @@ def tei_to_html(infile, outfile):
     ns = {'tei': 'http://www.tei-c.org/ns/1.0'}
     root = ET.parse(infile).getroot()
 
-    # Collect bibliographic metadata from all listBibl blocks
     for bibl in root.findall(".//tei:listBibl//tei:bibl", ns):
         bid = bibl.attrib.get("{http://www.w3.org/XML/1998/namespace}id")
         if not bid:
@@ -228,47 +250,30 @@ def tei_to_html(infile, outfile):
     html = [
         "<!doctype html><html lang='sa'><head><meta charset='utf-8'><title>Manuscript</title><style>",
         """
-        body { background:#ffffff; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem; } 
+        body { background:#ffffff; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem; }
         .folio { width:90%; margin:1rem auto; background:#ffffff; border:none; box-shadow:none; padding:1rem; position:relative; }
         .folio-inner { line-height:1.9; font-size:1.1rem; color:#2a1e0e; }
         .page-number { text-align:center;font-weight:bold;margin:0.5em 0;}
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
-        .add { color:#b58900; background:#fff9d9; cursor:help; } /* yellow tone */
-        .del { color:#777; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; white-space:pre; transform:translateY(-0.05em); }
-        .surplus { text-decoration: line-through gray 2px; text-decoration-thickness: 2px; text-decoration-color: gray; text-decoration-skip-ink: none; display: inline-block; position: relative; transform: translateY(-0.15em); }
-        .unclear { color:#b00; padding:0 0.15em; border-radius:3px; }
-        .quote  { color:#0044cc; background:#eaf1ff; border-radius:3px; padding:0 0.15em; cursor:help; }
-        .choice { color:#5a2a00; background:#f7e8d9; border-bottom:1px dotted #b55; }
-        .supplied { color:#666; font-style:italic;}
-        .footnotes { margin-top:1rem; border-top:1px solid #ddd; padding-top:0.5rem; font-size:0.9rem;}
-        .footnotes ol { padding-left:1.2em; }
-        .footnotes li { margin:0.4em 0;}
-        .legend { background:#fffbe6; border:1px solid #f0d890; padding:0.7rem 1rem; margin-bottom:1rem;
-                  border-radius:6px; font-size:0.95rem;}
-        .legend .item { margin:0.25rem 0;}
-        h2 { text-align:center; color:#5a2a00; margin:1rem 0; }
+        .add { background:cyan; cursor:help; }
+        .del { background: #F5F5F5; color:gray; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; white-space:pre; transform:translateY(-0.05em); }
+        .unclear { background:yellow; padding:0 0.15em; border-radius:3px; }
+        .quote  { color:blue; border-radius:3px; padding:0 0.15em; cursor:help; }
+        .choice { background:pink; border-bottom:1px dotted #b55; }
+        .supplied { background:violet; }
+        .verse { color: green; display:inline; } 
+        .verse * { color: inherit; } 
+        .surplus { background: tan !important; text-decoration: line-through 2px; text-decoration-thickness: 2px; text-decoration-color: gray; text-decoration-skip-ink: none; display:inline-block; position:relative; transform:translateY(-0.15em); }
+        .commentary { color:#2a1e0e; }
         """,
         "</style></head><body>"
     ]
-
-    legend = """
-	<div class="legend"><strong>Legend:</strong>
-	  <div class="item"><span style="color:#b58900">Yellow</span> — Supplied from margin (hover to see placement)</div>
-	  <div class="item"><span style="color:#0044cc">Blue</span> — Quotation (hover for source)</div>
-	  <div class="item"><span style="color:#5a2a00">Brown</span> — Editorial choice</div>
-	  <div class="item"><span style="color:#b00">Red</span> — Unclear text</div>
-	  <div class="item"><span style="color:#777;text-decoration:line-through;">Gray strikethrough</span> — Deleted text</div>
-      <div class="item"><span style="color:#5a2a00;text-decoration:line-through;">Brown strikethrough</span> — Surplus text (removed by editor)</div>
-	</div>    
-	"""
 
     for i, pg in enumerate(pages):
         if i == 0 and not any(s.strip() for s in pg.html_parts):
             continue
         html.append("<div class='folio'><div class='folio-inner'>")
-        if i <= 1:
-            html.append(legend)
-        html.append(''.join(pg.html_parts))
+        html.append(' '.join(pg.html_parts))
         if pg.footnotes:
             html.append('<div class="footnotes"><ol>')
             for num, f in pg.footnotes:
@@ -278,13 +283,14 @@ def tei_to_html(infile, outfile):
         html.append("</div></div>")
 
     html.append("</body></html>")
+
     open(outfile, "w", encoding="utf-8").write(''.join(html))
     print("✅ Wrote", outfile)
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (final v5)")
+    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (verse inline in green)")
     parser.add_argument("input", help="Input TEI XML file")
     parser.add_argument("output", help="Output HTML file")
     args = parser.parse_args()
