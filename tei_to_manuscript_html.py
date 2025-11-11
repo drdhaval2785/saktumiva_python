@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # tei_to_manuscript_html.py
-# Final version: inline verse-commentary, verse in green font, proper <note> rendering.
+# Adds support for <caesura>, <gap>, <sic>, and <space>
 
 import xml.etree.ElementTree as ET
 from html import escape
@@ -114,35 +114,59 @@ def render_quote(el):
     return f'<span class="quote" {title}>{"".join(out)}</span>'
 
 
+# ---------- New tags ----------
+
+def render_caesura(el):
+    """A caesura mark in verse."""
+    return '<span class="caesura">‖</span>'
+
+
+def render_gap(el):
+    """Unreadable section, with reason/unit/quantity tooltip."""
+    reason = el.attrib.get("reason", "gap")
+    unit = el.attrib.get("unit", "")
+    qty = el.attrib.get("quantity", "")
+    desc = f"{reason}"
+    if qty and unit:
+        desc += f" ({qty} {unit})"
+    elif qty:
+        desc += f" ({qty})"
+    return f'<span class="gap" title="{escape(desc)}">[...]</span>'
+
+
+def render_sic(el):
+    """Text transcribed as found, without correction."""
+    return f'<span class="sic" title="sic">{escape("".join(el.itertext()))}</span>'
+
+
+def render_space(el):
+    """Blank space in text."""
+    unit = el.attrib.get("unit", "")
+    qty = el.attrib.get("quantity", "")
+    tooltip = f"{qty} {unit}".strip() or "space"
+    return f'<span class="space" title="{escape(tooltip)}">{ "&nbsp;" * max(1, int(qty) if qty.isdigit() else 1) }</span>'
+
+
 # ---------- Recursive renderer ----------
 
 def render_element(el, page=None):
     tag = localname(el.tag)
     out = ""
 
-    reason = el.attrib.get("reason")
-    if reason:
-        out += f'<span title="{escape(reason)}">'
+    if tag == "lb": return render_lb(el)
+    if tag == "add": return render_add(el)
+    if tag == "del": return render_del(el)
+    if tag == "unclear": return render_unclear(el, page)
+    if tag == "supplied": return render_supplied(el)
+    if tag == "surplus": return render_surplus(el)
+    if tag == "choice": return render_choice(el)
+    if tag == "quote": return render_quote(el)
+    if tag == "caesura": return render_caesura(el)
+    if tag == "gap": return render_gap(el)
+    if tag == "sic": return render_sic(el)
+    if tag == "space": return render_space(el)
 
-    text_before = escape(el.text) if el.text else ""
-
-    if tag == "lb":
-        return render_lb(el)
-    elif tag == "add":
-        return render_add(el)
-    elif tag == "del":
-        return render_del(el)
-    elif tag == "unclear":
-        return render_unclear(el, page)
-    elif tag == "supplied":
-        return render_supplied(el)
-    elif tag == "surplus":
-        return render_surplus(el)
-    elif tag == "choice":
-        return render_choice(el)
-    elif tag == "quote":
-        return render_quote(el)
-    elif tag == "subst":
+    if tag == "subst":
         del_el = el.find(".//{*}del")
         add_el = el.find(".//{*}add")
         parts = []
@@ -152,7 +176,6 @@ def render_element(el, page=None):
             parts.append(render_add(add_el))
         return "".join(parts)
 
-    # ---------- FIXED NOTE HANDLING ----------
     elif tag == "note":
         nid = el.attrib.get("id", "")
         resp = el.attrib.get("resp", "")
@@ -161,11 +184,9 @@ def render_element(el, page=None):
         if nid in SKIP_NOTE_IDS:
             return ""
 
-        # Editorial notes become footnotes
         if resp == "editorial" and page:
             return page.add_foot(''.join(el.itertext()).strip())
 
-        # Inline note with proper nesting
         inner = ""
         if el.text:
             inner += escape(el.text)
@@ -175,11 +196,11 @@ def render_element(el, page=None):
                 inner += escape(c.tail)
 
         return f'<span class="note" data-place="{escape(place)}">{inner}</span>'
-    # ----------------------------------------
 
     elif tag == "pb":
         n = el.attrib.get("n", "?")
         return f'<hr/><div class="page-number">Page {escape(n)}</div>'
+
     elif tag == "div":
         head = el.find("./{*}head")
         if head is not None:
@@ -191,10 +212,11 @@ def render_element(el, page=None):
                     out += escape(c.tail)
         return out
 
-    # Verse (<lg>)
     elif tag == "lg":
         xmlid = el.attrib.get("{http://www.w3.org/XML/1998/namespace}id", "")
-        out = f"<span class='verse' data-id='{xmlid}'>{text_before}"
+        out = f"<span class='verse' data-id='{xmlid}'>"
+        if el.text:
+            out += escape(el.text)
         for c in el:
             out += render_element(c, page)
             if c.tail:
@@ -202,7 +224,6 @@ def render_element(el, page=None):
         out += "</span>"
         return out
 
-    # Commentary (<p>)
     elif tag == "p":
         xmlid = el.attrib.get("{http://www.w3.org/XML/1998/namespace}id", "")
         classes = []
@@ -211,7 +232,9 @@ def render_element(el, page=None):
             classes.append("commentary")
             base = xmlid.split("-")[0].replace("c", "v")
             data_target = f" data-target='{base}'"
-        out = f"<span class='{' '.join(classes)}'{data_target}>{text_before}"
+        out = f"<span class='{' '.join(classes)}'{data_target}>"
+        if el.text:
+            out += escape(el.text)
         for c in el:
             out += render_element(c, page)
             if c.tail:
@@ -224,10 +247,7 @@ def render_element(el, page=None):
         if c.tail:
             out += escape(c.tail)
 
-    if el.attrib.get("reason"):
-        out += "</span>"
-
-    return text_before + out
+    return out
 
 
 # ---------- Converter ----------
@@ -269,21 +289,23 @@ def tei_to_html(infile, outfile):
         "<!doctype html><html lang='sa'><head><meta charset='utf-8'><title>Manuscript</title><style>",
         """
         body { background:#ffffff; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem; }
-        .folio { width:90%; margin:1rem auto; background:#ffffff; border:none; box-shadow:none; padding:1rem; position:relative; }
         .folio-inner { line-height:1.9; font-size:1.1rem; color:#2a1e0e; }
-        .page-number { text-align:center; font-weight:bold; margin:0.5em 0;}
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
-        .add { background:cyan; cursor:help; }
-        .del { background:#F5F5F5; color:gray; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; white-space:pre; transform:translateY(-0.05em); }
-        .unclear { background:yellow; padding:0 0.15em; border-radius:3px; }
-        .quote  { color:blue; border-radius:3px; padding:0 0.15em; cursor:help; }
+        .add { background:cyan; }
+        .del { background:#F5F5F5; color:gray; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; }
+        .unclear { background:yellow; border-radius:3px; }
+        .quote { color:blue; }
         .choice { background:pink; border-bottom:1px dotted #b55; }
         .supplied { background:violet; }
         .verse { color:green; display:inline; }
         .verse * { color:inherit; }
-        .surplus { background:tan !important; text-decoration:line-through 2px gray; text-decoration-skip-ink:none; display:inline-block; position:relative; transform:translateY(-0.15em); }
+        .surplus { background:tan !important; text-decoration:line-through 2px gray; display:inline-block; }
         .commentary { color:#2a1e0e; }
         .note { background:#fdf6e3; border-left:2px solid #aaa; padding-left:0.3em; margin-left:0.3em; display:inline-block; }
+        .caesura { color:#888; margin:0 0.25em; }
+        .gap { color:#b00; font-style:italic; }
+        .sic { color:#b00; background:#f9e2e2; }
+        .space { display:inline-block; background:#eee; }
         """,
         "</style></head><body>"
     ]
@@ -297,20 +319,19 @@ def tei_to_html(infile, outfile):
             html.append('<div class="footnotes"><ol>')
             for num, f in pg.footnotes:
                 fid = f"fn{num}"
-                html.append(f'<li id="{fid}">{escape(f)} <a href="#ref{num}" title="Back to text">↩</a></li>')
+                html.append(f'<li id="{fid}">{escape(f)} <a href="#ref{num}">↩</a></li>')
             html.append("</ol></div>")
         html.append("</div></div>")
 
     html.append("</body></html>")
-
     open(outfile, "w", encoding="utf-8").write(''.join(html))
     print("✅ Wrote", outfile)
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (verse inline in green, proper <note> rendering)")
-    parser.add_argument("input", help="Input TEI XML file")
-    parser.add_argument("output", help="Output HTML file")
+    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (with caesura, gap, sic, space)")
+    parser.add_argument("input")
+    parser.add_argument("output")
     args = parser.parse_args()
     tei_to_html(args.input, args.output)
