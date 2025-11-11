@@ -5,7 +5,7 @@
 import xml.etree.ElementTree as ET
 from html import escape
 
-SKIP_NOTE_IDS = {"HND", "CSP", "FR"}
+SKIP_NOTE_IDS = {"HND", "CSP", "FR", "FOLIO"}
 BIBLIO = {}
 
 
