@@ -56,8 +56,15 @@ def render_del(el):
     return f'<span class="del">{"".join(escape(t) for t in el.itertext())}</span>'
 
 
-def render_unclear(el):
-    return f'<span class="unclear">{"".join(escape(t) for t in el.itertext())}</span>'
+def render_unclear(el, page=None):
+    out = ""
+    if el.text:
+        out += escape(el.text)
+    for c in el:
+        out += render_element(c, page)
+        if c.tail:
+            out += escape(c.tail)
+    return f'<span class="unclear">{out}</span>'
 
 
 def render_supplied(el):
@@ -143,7 +150,12 @@ def render_element(el, page=None):
     elif tag == "subst":
         del_el = el.find(".//{*}del")
         add_el = el.find(".//{*}add")
-        return (render_del(del_el) if del_el is not None else "") + (render_add(add_el) if add_el is not None else "")
+        parts = []
+        if del_el is not None:
+            parts.append(render_del(del_el))
+        if add_el is not None:
+            parts.append(render_add(add_el))
+        return "".join(parts)
     elif tag == "note":
         nid = el.attrib.get("id", "")
         resp = el.attrib.get("resp", "")
@@ -222,7 +234,7 @@ def tei_to_html(infile, outfile):
         .page-number { text-align:center;font-weight:bold;margin:0.5em 0;}
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
         .add { color:#b58900; background:#fff9d9; cursor:help; } /* yellow tone */
-        .del { color:#777; text-decoration:line-through; }
+        .del { color:#777; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; white-space:pre; transform:translateY(-0.05em); }
         .surplus { text-decoration: line-through gray 2px; text-decoration-thickness: 2px; text-decoration-color: gray; text-decoration-skip-ink: none; display: inline-block; position: relative; transform: translateY(-0.15em); }
         .unclear { color:#b00; padding:0 0.15em; border-radius:3px; }
         .quote  { color:#0044cc; background:#eaf1ff; border-radius:3px; padding:0 0.15em; cursor:help; }
