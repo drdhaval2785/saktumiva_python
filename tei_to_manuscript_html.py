@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # tei_to_manuscript_html.py
-# Final version: inline verse-commentary, verse in green font.
+# Final version: inline verse-commentary, verse in green font, proper <note> rendering.
 
 import xml.etree.ElementTree as ET
 from html import escape
@@ -151,14 +151,32 @@ def render_element(el, page=None):
         if add_el is not None:
             parts.append(render_add(add_el))
         return "".join(parts)
+
+    # ---------- FIXED NOTE HANDLING ----------
     elif tag == "note":
         nid = el.attrib.get("id", "")
         resp = el.attrib.get("resp", "")
+        place = el.attrib.get("place", "")
+
         if nid in SKIP_NOTE_IDS:
             return ""
+
+        # Editorial notes become footnotes
         if resp == "editorial" and page:
             return page.add_foot(''.join(el.itertext()).strip())
-        return ''.join(render_element(c, page) for c in el)
+
+        # Inline note with proper nesting
+        inner = ""
+        if el.text:
+            inner += escape(el.text)
+        for c in el:
+            inner += render_element(c, page)
+            if c.tail:
+                inner += escape(c.tail)
+
+        return f'<span class="note" data-place="{escape(place)}">{inner}</span>'
+    # ----------------------------------------
+
     elif tag == "pb":
         n = el.attrib.get("n", "?")
         return f'<hr/><div class="page-number">Page {escape(n)}</div>'
@@ -253,18 +271,19 @@ def tei_to_html(infile, outfile):
         body { background:#ffffff; font-family:'Noto Serif Devanagari',serif; margin:0; padding:2rem; }
         .folio { width:90%; margin:1rem auto; background:#ffffff; border:none; box-shadow:none; padding:1rem; position:relative; }
         .folio-inner { line-height:1.9; font-size:1.1rem; color:#2a1e0e; }
-        .page-number { text-align:center;font-weight:bold;margin:0.5em 0;}
+        .page-number { text-align:center; font-weight:bold; margin:0.5em 0;}
         .linenum { display:inline-block; width:2.4em; text-align:right; margin-right:0.5em; color:#aaa; font-size:0.8rem;}
         .add { background:cyan; cursor:help; }
-        .del { background: #F5F5F5; color:gray; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; white-space:pre; transform:translateY(-0.05em); }
+        .del { background:#F5F5F5; color:gray; text-decoration:line-through gray 1.5px; text-decoration-skip-ink:none; display:inline-block; white-space:pre; transform:translateY(-0.05em); }
         .unclear { background:yellow; padding:0 0.15em; border-radius:3px; }
         .quote  { color:blue; border-radius:3px; padding:0 0.15em; cursor:help; }
         .choice { background:pink; border-bottom:1px dotted #b55; }
         .supplied { background:violet; }
-        .verse { color: green; display:inline; } 
-        .verse * { color: inherit; } 
-        .surplus { background: tan !important; text-decoration: line-through 2px; text-decoration-thickness: 2px; text-decoration-color: gray; text-decoration-skip-ink: none; display:inline-block; position:relative; transform:translateY(-0.15em); }
+        .verse { color:green; display:inline; }
+        .verse * { color:inherit; }
+        .surplus { background:tan !important; text-decoration:line-through 2px gray; text-decoration-skip-ink:none; display:inline-block; position:relative; transform:translateY(-0.15em); }
         .commentary { color:#2a1e0e; }
+        .note { background:#fdf6e3; border-left:2px solid #aaa; padding-left:0.3em; margin-left:0.3em; display:inline-block; }
         """,
         "</style></head><body>"
     ]
@@ -290,7 +309,7 @@ def tei_to_html(infile, outfile):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (verse inline in green)")
+    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (verse inline in green, proper <note> rendering)")
     parser.add_argument("input", help="Input TEI XML file")
     parser.add_argument("output", help="Output HTML file")
     args = parser.parse_args()
