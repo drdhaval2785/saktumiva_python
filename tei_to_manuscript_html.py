@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # tei_to_manuscript_html.py
-# Final version: inline verse-commentary, verse in green font, proper <note> rendering.
+# Adds <caesura>, <gap>, <sic> support to working renderer.
 
 import xml.etree.ElementTree as ET
 from html import escape
@@ -152,6 +152,21 @@ def render_element(el, page=None):
             parts.append(render_add(add_el))
         return "".join(parts)
 
+    # ---------- NEW TAGS ----------
+    elif tag == "caesura":
+        return '<span class="caesura" title="caesura">‖</span>'
+
+    elif tag == "gap":
+        reason = el.attrib.get("reason", "illegible")
+        unit = el.attrib.get("unit", "")
+        qty = el.attrib.get("quantity", "")
+        tooltip = f"{qty} {unit} {reason}".strip()
+        return f'<span class="gap" title="{escape(tooltip)}">[...]</span>'
+
+    elif tag == "sic":
+        return f'<span class="sic" title="as in manuscript">{"".join(escape(t) for t in el.itertext())}</span>'
+    # ------------------------------
+
     # ---------- FIXED NOTE HANDLING ----------
     elif tag == "note":
         nid = el.attrib.get("id", "")
@@ -161,11 +176,9 @@ def render_element(el, page=None):
         if nid in SKIP_NOTE_IDS:
             return ""
 
-        # Editorial notes become footnotes
         if resp == "editorial" and page:
             return page.add_foot(''.join(el.itertext()).strip())
 
-        # Inline note with proper nesting
         inner = ""
         if el.text:
             inner += escape(el.text)
@@ -173,7 +186,6 @@ def render_element(el, page=None):
             inner += render_element(c, page)
             if c.tail:
                 inner += escape(c.tail)
-
         return f'<span class="note" data-place="{escape(place)}">{inner}</span>'
     # ----------------------------------------
 
@@ -284,6 +296,10 @@ def tei_to_html(infile, outfile):
         .surplus { background:tan !important; text-decoration:line-through 2px gray; text-decoration-skip-ink:none; display:inline-block; position:relative; transform:translateY(-0.15em); }
         .commentary { color:#2a1e0e; }
         .note { background:#fdf6e3; border-left:2px solid #aaa; padding-left:0.3em; margin-left:0.3em; display:inline-block; }
+
+        .caesura { color:#666; font-weight:bold; margin:0 0.2em; }
+        .gap { color:#999; font-style:italic; cursor:help; }
+        .sic { color:#d00; font-style:italic; }
         """,
         "</style></head><body>"
     ]
@@ -309,7 +325,7 @@ def tei_to_html(infile, outfile):
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML (verse inline in green, proper <note> rendering)")
+    parser = argparse.ArgumentParser(description="Convert TEI XML → manuscript HTML with <caesura>, <gap>, <sic> support")
     parser.add_argument("input", help="Input TEI XML file")
     parser.add_argument("output", help="Output HTML file")
     args = parser.parse_args()
