@@ -257,7 +257,7 @@ def extract_plain_text(body):
     """Extracts plain text with rules for deletion/orig/note handling."""
     def recurse(el):
         tag = localname(el.tag)
-        if tag in {"del", "orig"}:
+        if tag in {"del", "orig", "surplus"}:
             return ""
         if tag == "note" and el.attrib.get("resp") == "editorial":
             return ""
