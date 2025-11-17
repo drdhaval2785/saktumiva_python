@@ -57,7 +57,7 @@ def generate_dtd_with_enums(xml_file_path):
             for attr_name, values in sorted(info['attributes'].items()):
                 if len(values) > 1 and len(values) < 20: # Heuristic: if few unique values, assume an ENUM
                     # Create the enumeration list in DTD format: (val1 | val2 | ...)
-                    enum_list = " | ".join(f'"{v}"' for v in sorted(values))
+                    enum_list = " | ".join(v for v in sorted(values))
                     attr_type = f"({enum_list})"
                 else:
                     # Otherwise, assume general character data
