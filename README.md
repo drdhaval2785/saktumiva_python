@@ -5,3 +5,4 @@
 
 Currently it is not collating the data as in saktumiva site.
 
+`python tei_to_manuscript_html.py ../abhidhanachintamani_commentaries/charitrasimha/transcriptions/LDII_85885.xml output.html`
