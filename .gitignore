@@ -1,3 +1,16 @@
-output.html
-output.txt
+# Rendered output (regenerate with the scripts)
+*.html
+*.txt
+!requirements.txt
+*.pdf
 
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
