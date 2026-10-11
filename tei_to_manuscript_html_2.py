@@ -21,6 +21,7 @@ colour-coded editorial marks.
 """
 
 import argparse
+import math
 import os
 import random
 import re
@@ -479,37 +480,180 @@ def reading_text(body):
 
 # -------------------------------------------------------------- render ---
 
-def leaf_shape(seed):
-    """A slightly irregular paper outline (clip-path polygon) per folio."""
-    rnd = random.Random(seed)
-    pts = []
-
-    def j(a=0.35):
-        return rnd.uniform(0, a)
-
-    for i in range(0, 101, 4):          # top edge
-        pts.append((i, j(0.55)))
-    for i in range(4, 97, 6):           # right edge
-        pts.append((100 - j(0.25), i))
-    for i in range(100, -1, -4):        # bottom edge
-        pts.append((i, 100 - j(0.6)))
-    for i in range(96, 3, -6):          # left edge
-        pts.append((j(0.25), i))
-    # rounded worn corners
-    pts[0] = (0.5, 1.6)
-    pts[25] = (99.5, 1.4)
-    return "polygon(" + ",".join(f"{x:.2f}% {y:.2f}%" for x, y in pts) + ")"
+# Leaf outline -------------------------------------------------------------
+# Units are cqw (1 = 1% of the leaf width); the leaf is about LEAF_H tall.
+# Damage stays inside the blank margins (top 3.9, bottom 4.4, sides 8.6 cqw).
+LEAF_H = 45.6
 
 
-def leaf_stains(seed):
-    rnd = random.Random(seed * 7 + 3)
+def leaf_key(n):
+    """Physical leaf of a folio side: '0002_1' and '0002_2' share '0002'."""
+    m = re.match(r"^(\d+)_\d$", n or "")
+    return m.group(1) if m else None
+
+
+def is_verso(n):
+    return bool(re.match(r"^\d+_2$", n or ""))
+
+
+def leaf_outline(key):
+    """Clip-path polygon of one physical leaf, seen from its recto: a ragged
+    edge, worn or snipped corners and, now and then, torn bites and clean cut
+    notches.  The verso shows the same outline mirrored top-to-bottom, since
+    the leaves are turned over their long axis."""
+    rnd = random.Random("leaf-" + key)
+    W, H = 100.0, LEAF_H
+    rag = rnd.uniform(0.08, 0.42)               # ragged amplitude
+
+    # corners: TL, TR, BR, BL -> ("round", r) | ("snip", a, b) | ("torn", a, b)
+    corners = []
+    for _ in range(4):
+        x = rnd.random()
+        if x < 0.16:
+            corners.append(("snip", rnd.uniform(0.8, 3.5), rnd.uniform(0.6, 2.8)))
+        elif x < 0.30:
+            corners.append(("torn", rnd.uniform(2.0, 6.5), rnd.uniform(1.4, 3.4)))
+        else:
+            corners.append(("round", rnd.uniform(0.25, 1.6)))
+
+    def corner_len(c, along_x):
+        if c[0] == "round":
+            return c[1]
+        return c[1] if along_x else c[2]
+
+    # edge features: (edge, kind, centre 0..1, width, depth)
+    max_depth = {"top": 3.2, "bottom": 3.7, "right": 2.0, "left": 2.0}
+    feats = []
+    for _ in range(rnd.choice((0, 1, 1, 2, 2, 3))):
+        edge = rnd.choices(("top", "bottom", "left", "right"), (4, 4, 1, 1))[0]
+        x = rnd.random()
+        if x < 0.55:                              # torn bite
+            feats.append((edge, "tear", rnd.uniform(0.06, 0.94), rnd.uniform(1.5, 9.0),
+                          rnd.uniform(0.45, 1.0) * max_depth[edge]))
+        elif x < 0.75:                            # narrow split into the margin
+            feats.append((edge, "slit", rnd.uniform(0.06, 0.94), rnd.uniform(0.35, 0.9),
+                          rnd.uniform(0.6, 1.0) * max_depth[edge]))
+        else:                                     # clean cut notch
+            feats.append((edge, "cut", rnd.uniform(0.1, 0.9), rnd.uniform(1.2, 5.0),
+                          rnd.uniform(0.35, 0.85) * max_depth[edge]))
+    frayed = []                                   # stretches with a rougher edge
+    for _ in range(rnd.choice((0, 1, 1, 2))):
+        frayed.append((rnd.choice(("top", "bottom", "left", "right")),
+                       rnd.uniform(0, 1), rnd.uniform(0.1, 0.35)))
+
+    def edge_profile(edge, length, s0, s1):
+        """Inward depth along an edge, as (s, depth) with s in cqw."""
+        step = 1.1
+        knots = [rnd.random() for _ in range(int(length / 6) + 3)]
+
+        def smooth(s):                            # value noise, 6 cqw period
+            u = s / 6.0
+            i = int(u)
+            f = u - i
+            f = f * f * (3 - 2 * f)
+            return knots[i] * (1 - f) + knots[i + 1] * f
+
+        def rough(s):
+            t = s / length
+            k = 1.0
+            for e, c, w in frayed:
+                if e == edge and abs(t - c) < w / 2:
+                    k = 3.2
+            return rag * k * (0.35 + 0.65 * smooth(s)) + rnd.uniform(0, rag * 0.6 * k)
+
+        mine = [f for f in feats if f[0] == edge]
+        spans = [(f[2] * length - f[3] / 2, f[2] * length + f[3] / 2, f) for f in mine]
+        spans = [(max(a, s0 + 0.5), min(b, s1 - 0.5), f) for a, b, f in spans if b - a > 0.8]
+        pts = []
+        s = s0
+        while s <= s1:
+            if not any(a <= s <= b for a, b, _ in spans):
+                pts.append((s, rough(s)))
+            s += step
+        for a, b, f in spans:
+            _, kind, _, _, d = f
+            if kind == "cut":                     # clean, straight-sided notch
+                slope = rnd.uniform(0.1, 0.45) * (b - a)
+                pts += [(a, 0.0), (a + slope, d), (b - slope * rnd.uniform(0.3, 1), d), (b, 0.0)]
+            elif kind == "slit":                  # thin crack with a ragged lip
+                m = (a + b) / 2 + rnd.uniform(-0.15, 0.15)
+                pts += [(a, rag), (m - 0.08, d * 0.55), (m, d), (m + 0.06, d * 0.6), (b, rag)]
+            else:                                 # jagged torn bite
+                k = rnd.randint(7, 12)
+                for i in range(k + 1):
+                    u = i / k
+                    shape = 1 - abs(2 * u - 1) ** rnd.uniform(1.1, 1.8)
+                    pts.append((a + u * (b - a), max(0.0, d * shape * rnd.uniform(0.55, 1.0))))
+        pts.sort()
+        return pts
+
+    poly = []
+    # top edge, left -> right
+    tl, tr, br, bl = corners
+    a0, a1 = corner_len(tl, True), W - corner_len(tr, True)
+    poly += corner_pts(tl, 0, W, H)
+    poly += [(sv, d) for sv, d in edge_profile("top", W, a0, a1)]
+    poly += corner_pts(tr, 1, W, H)
+    b0, b1 = corner_len(tr, False), H - corner_len(br, False)
+    poly += [(W - d, sv) for sv, d in edge_profile("right", H, b0, b1)]
+    poly += corner_pts(br, 2, W, H)
+    c0, c1 = corner_len(br, True), W - corner_len(bl, True)
+    poly += [(W - sv, H - d) for sv, d in edge_profile("bottom", W, c0, c1)]
+    poly += corner_pts(bl, 3, W, H)
+    d0, d1 = corner_len(bl, False), H - corner_len(tl, False)
+    poly += [(d, H - sv) for sv, d in edge_profile("left", H, d0, d1)]
+    return "polygon(" + ",".join(f"{x / W * 100:.1f}% {y / H * 100:.1f}%" for x, y in poly) + ")"
+
+
+def corner_pts(c, which, W, H):
+    """Points of one corner, clockwise; which: 0 TL, 1 TR, 2 BR, 3 BL."""
+    if c[0] == "snip":
+        a, b = c[1], c[2]
+        local = [(0, b), (a, 0)]                 # TL: from left edge to top edge
+    elif c[0] == "torn":                         # corner torn away, jagged
+        a, b = c[1], c[2]
+        rnd = random.Random(f"{a:.4f}{b:.4f}")
+        k = rnd.randint(6, 10)
+        local = []
+        for i in range(k + 1):
+            u = i / k                            # from (0,b) to (a,0), bowed inward
+            bow = math.sin(math.pi * u) * rnd.uniform(0.05, 0.3)
+            j = rnd.uniform(-0.25, 0.25) if 0 < i < k else 0
+            local.append((u * a * (1 + bow) + j, (1 - u) * b * (1 + bow) + j * 0.6))
+    else:
+        r = c[1]
+        local = [(r - r * math.cos(t), r - r * math.sin(t))
+                 for t in (i * math.pi / 2 / 4 for i in range(5))]
+    out = []
+    for x, y in local:                           # rotate TL corner into place
+        if which == 0:
+            out.append((x, y))
+        elif which == 1:
+            out.append((W - y, x))
+        elif which == 2:
+            out.append((W - x, H - y))
+        else:
+            out.append((y, H - x))
+    return out
+
+
+def leaf_stains(key):
+    rnd = random.Random("stain-" + key)
     g = []
     for _ in range(3):
         x, y = rnd.randint(5, 95), rnd.randint(5, 95)
-        s = rnd.randint(18, 40)
+        sz = rnd.randint(18, 40)
         a = rnd.uniform(0.05, 0.12)
-        g.append(f"radial-gradient(ellipse {s}% {s * 0.8:.0f}% at {x}% {y}%, rgba(150,100,40,{a:.2f}), transparent 70%)")
+        g.append(f"radial-gradient(ellipse {sz}% {sz * 0.8:.0f}% at {x}% {y}%, rgba(150,100,40,{a:.2f}), transparent 70%)")
     return ",".join(g)
+
+
+def leaf_styles(pages):
+    """One CSS rule per physical leaf, shared by its recto and verso."""
+    rules = []
+    for key in sorted({leaf_key(p.n) for p in pages if leaf_key(p.n)}):
+        rules.append(f'.leaf[data-leaf="{key}"]{{--shape:{leaf_outline(key)};--stains:{leaf_stains(key)}}}')
+    return "\n".join(rules)
 
 
 def render_page(page, pdf_rel):
@@ -524,9 +668,12 @@ def render_page(page, pdf_rel):
     h = [f'<section class="folio" id="{pid}" data-n="{attr(page.n)}" data-label="{attr(label)}">']
     h.append(f'<header class="folio-head"><span class="flabel">{escape(label)}</span>'
              f'<span class="fn">{escape(page.n)}</span>{facs}</header>')
-    style = f'--shape:{leaf_shape(page.seq)};--stains:{leaf_stains(page.seq)}'
-    h.append(f'<div class="leaf-wrap"><div class="leaf" style="{style}">')
-    h.append('<div class="rule rule-l"></div><div class="rule rule-r"></div>')
+    key = leaf_key(page.n)
+    leaf_attr = f' data-leaf="{key}"' if key else ""
+    side = " verso" if is_verso(page.n) else ""
+    h.append(f'<div class="leaf-wrap"><div class="leaf{side}"{leaf_attr}>')
+    h.append('<div class="paper-sh"><div class="paper">'
+             '<div class="rule rule-l"></div><div class="rule rule-r"></div></div></div>')
     h.append('<div class="mtop">' + "".join(page.top) + "</div>")
     h.append('<div class="lines">')
     for k, ln in enumerate(page.lines):
@@ -607,16 +754,18 @@ main{padding:.5rem 0 4rem}
 .flabel{font-size:15px;color:#f0e2c3;font-weight:600}
 .facs{margin-left:auto;color:#d9a77a;text-decoration:none;border-bottom:1px dotted #d9a77a}
 .facs:hover{color:#ffcf9e}
-.leaf-wrap{filter:drop-shadow(0 6px 14px rgba(0,0,0,.55)) drop-shadow(0 1px 2px rgba(0,0,0,.4))}
 .leaf-wrap{container-type:inline-size}
 .leaf{position:relative;aspect-ratio:2.218/1;isolation:isolate;
   padding:3.9cqw 0 4.4cqw;display:flex;flex-direction:column;color:var(--ink)}
-.leaf::before{content:"";position:absolute;inset:0;z-index:-1;clip-path:var(--shape);
+.paper-sh{position:absolute;inset:0;z-index:-1;pointer-events:none;
+  filter:drop-shadow(0 0 .07cqw rgba(105,62,20,.9)) drop-shadow(0 6px 14px rgba(0,0,0,.55)) drop-shadow(0 1px 2px rgba(0,0,0,.4))}
+.paper{position:absolute;inset:0;clip-path:var(--shape,inset(0 round 1cqw));
   background-color:var(--paper);
   background-image:var(--stains),
     radial-gradient(ellipse at 50% 45%,var(--paper-hi) 0%,rgba(239,220,179,0) 65%),
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .45  0 0 0 0 .32  0 0 0 0 .15  0 0 0 .22 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
   box-shadow:inset 0 0 3.2cqw rgba(140,90,30,.45),inset 0 0 .6cqw rgba(110,70,20,.35)}
+.leaf.verso .paper{transform:scaleY(-1)}
 .rule{position:absolute;top:0;bottom:0;width:calc(var(--gut) * .62);pointer-events:none;
   background:linear-gradient(90deg,transparent 0 6%,var(--rule-red) 6% 20%,transparent 20% 30%,var(--rule-red) 30% 40%,
     var(--rule-ochre) 40% 62%,var(--rule-red) 62% 72%,transparent 72% 86%,var(--rule-red) 86% 96%,transparent 96%);opacity:.82;
@@ -754,8 +903,8 @@ body.reading .add .up-t::after,body.reading .add .down-t::after{display:none}
   .bar,.legend,.intro,.facs,#tip{display:none!important}
   .folio{break-after:page;page-break-after:always;margin:0 auto;padding:0;max-width:none}
   .folio-head{color:#555}.flabel{color:#222}
-  .leaf-wrap{filter:none}
-  .leaf::before,.red,.rule{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .paper-sh{filter:none}
+  .paper,.red,.rule{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .apparatus{color:#222;background:none}
   .lnno{color:#999}
 }
@@ -969,6 +1118,7 @@ def build_html(ctx, title, subtitle, pdf_rel, stats):
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>{CSS}</style>
+<style>{leaf_styles(ctx.pages)}</style>
 </head>
 <body class="ed-on">
 <div class="bar ui">
