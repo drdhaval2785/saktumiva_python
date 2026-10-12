@@ -14,3 +14,5 @@ Currently it is not collating the data as in saktumiva site.
 `python tei_to_manuscript_html_2.py ../abhidhanachintamani_commentaries/charitrasimha/transcriptions/LDII_85885.xml output_2.html`
 
 Options: `--pages 0001_2,0010_1-0012_2` renders only some folio sides; `--pdf PATH` / `--no-pdf` controls the facsimile link (by default `LDII_85885.pdf` is looked up in parent folders).
+
+The manuscript text uses the installed **Siddhanta** font by default, falling back to Noto Serif Devanagari for readers who do not have it. `--font NAME` picks another installed font (`--font none` for Noto only), `--font-scale 107` adjusts its size, and `--font-file path/to/siddhanta.ttf` embeds the font in the HTML (about 1.5 MB) so the page looks the same on machines without it — check the font's licence before sharing such a file.

@@ -13,6 +13,7 @@ A plain reading text (.txt) is written next to the HTML.
 Usage:
     python tei_to_manuscript_html_2.py INPUT.xml [OUTPUT.html]
            [--pdf PATH | --no-pdf] [--pages 0001_2,0010_1-0012_2]
+           [--font Siddhanta] [--font-file siddhanta.ttf] [--font-scale 107]
 
 In the page: "Manuscript" shows the text as written, with a caret under the
 line where each marginal note belongs; "Reading" applies the corrections and
@@ -373,7 +374,7 @@ class Builder:
             self.out(f'<span class="anchor-down mnote-inline" data-tip="Note written below the line"><span class="down-t">{body}</span></span>')
         elif place in ("left", "right", "top", "bottom"):
             if nid in FURNITURE:
-                self.margin(place, body, FURNITURE[nid], kind="furniture " + nid.lower(), caret=False)
+                self.margin(place, body, FURNITURE[nid], kind="furniture fur-" + nid.lower(), caret=False)
             else:
                 self.margin(place, body, f"Note in the {place} margin", kind="note")
         else:
@@ -656,7 +657,10 @@ def leaf_styles(pages):
     return "\n".join(rules)
 
 
-def render_page(page, pdf_rel):
+def render_page(page, pdf_rel, lazy=True):
+    """One folio.  With `lazy`, the leaf's text is shipped as inert raw text
+    (<script type="text/x-folio">) which the page turns into DOM only when the
+    folio comes near the viewport, so the document opens at once."""
     if not page.lines and not page.top and not page.bottom and not page.apparatus:
         return ""
     pid = f"p{page.seq}"
@@ -665,31 +669,40 @@ def render_page(page, pdf_rel):
     if pdf_rel and page.n:
         facs = (f'<a class="facs" href="{attr(pdf_rel)}#page={page.seq + 1}" target="_blank" '
                 f'rel="noopener">facsimile · PDF p. {page.seq + 1} ↗</a>')
-    h = [f'<section class="folio" id="{pid}" data-n="{attr(page.n)}" data-label="{attr(label)}">']
+    # exact size hint for the folio while it is skipped off screen (see .folio CSS)
+    extra = 52 + 24 * len(page.apparatus) if page.apparatus else 0
+    h = [f'<section class="folio" id="{pid}" data-n="{attr(page.n)}" data-label="{attr(label)}" '
+         f'style="--rows:{max(len(page.lines), 1)};--extra:{extra}px">']
     h.append(f'<header class="folio-head"><span class="flabel">{escape(label)}</span>'
              f'<span class="fn">{escape(page.n)}</span>{facs}</header>')
     key = leaf_key(page.n)
     leaf_attr = f' data-leaf="{key}"' if key else ""
     side = " verso" if is_verso(page.n) else ""
-    h.append(f'<div class="leaf-wrap"><div class="leaf{side}"{leaf_attr}>')
+    h.append(f'<div class="leaf-wrap"><div class="leaf{side}"{leaf_attr} style="--rows:{max(len(page.lines), 1)}">')
     h.append('<div class="paper-sh"><div class="paper">'
              '<div class="rule rule-l"></div><div class="rule rule-r"></div></div></div>')
-    h.append('<div class="mtop">' + "".join(page.top) + "</div>")
-    h.append('<div class="lines">')
+    body = h
+    if lazy:
+        body = []
+    body.append('<div class="mtop">' + "".join(page.top) + "</div>")
+    body.append('<div class="lines">')
     for k, ln in enumerate(page.lines):
         inner = ln.html().strip(" ")
         if k == 0:
             inner = "".join(page.prelude) + inner
         cont = ' data-break="no"' if ln.brk == "no" else ""
-        h.append(
+        body.append(
             f'<div class="row" data-ln="{attr(ln.n)}"{cont}>'
             f'<div class="ml"><span class="lnno">{escape(ln.n)}</span><div class="mstack">{"".join(ln.left)}</div></div>'
             f'<div class="tx"><span class="tx-in">{inner}</span></div>'
             f'<div class="mr"><div class="mstack">{"".join(ln.right)}</div></div>'
             f'</div>'
         )
-    h.append("</div>")
-    h.append('<div class="mbottom">' + "".join(page.bottom) + "</div>")
+    body.append("</div>")
+    body.append('<div class="mbottom">' + "".join(page.bottom) + "</div>")
+    if lazy:
+        raw = "".join(body).replace("</script", "<\\/script").replace("<!--", "&lt;!--")
+        h.append(f'<script type="text/x-folio">{raw}</script>')
     h.append("</div></div>")
     if page.apparatus:
         h.append('<aside class="apparatus"><span class="ap-h">Editorial notes</span><ol>')
@@ -713,10 +726,9 @@ CSS = r"""
   --lm:8.6%; --gut:2.4%; --rm:8.6%;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
 body{margin:0;background:var(--desk);color:var(--desk-ink);
-  font-family:"Noto Serif Devanagari","Tiro Devanagari Sanskrit","Kohinoor Devanagari","Devanagari Sangam MN",serif;
-  background-image:radial-gradient(ellipse at 50% 0,var(--desk-2),var(--desk) 70%);background-attachment:fixed}
+  font-family:"MS Deva","Noto Serif Devanagari","Tiro Devanagari Sanskrit","Kohinoor Devanagari","Devanagari Sangam MN",serif;
+  background-image:radial-gradient(ellipse 120% 1200px at 50% 0,var(--desk-2),var(--desk) 70%);background-repeat:no-repeat}
 .ui{font-family:"Inter","Segoe UI",system-ui,-apple-system,sans-serif}
 
 /* ---------- toolbar ---------- */
@@ -749,13 +761,15 @@ body{margin:0;background:var(--desk);color:var(--desk-ink);
 
 /* ---------- folio ---------- */
 main{padding:.5rem 0 4rem}
-.folio{max-width:1500px;margin:1.8rem auto 2.6rem;padding:0 3rem;position:relative}
+.folio{max-width:1500px;margin:1.8rem auto 2.6rem;padding:0 3rem;position:relative;
+  content-visibility:auto;
+  contain-intrinsic-size:auto calc(var(--leafw, min(1404px, 100vw - 6rem)) * max(.4509, var(--rows,19) * .0197 + .083) + 26px + var(--extra,0px))}
 .folio-head{display:flex;gap:1rem;align-items:baseline;margin:0 0 .45rem .2rem;font-family:"Inter",system-ui,sans-serif;font-size:13px;color:var(--desk-dim)}
 .flabel{font-size:15px;color:#f0e2c3;font-weight:600}
 .facs{margin-left:auto;color:#d9a77a;text-decoration:none;border-bottom:1px dotted #d9a77a}
 .facs:hover{color:#ffcf9e}
 .leaf-wrap{container-type:inline-size}
-.leaf{position:relative;aspect-ratio:2.218/1;isolation:isolate;
+.leaf{position:relative;aspect-ratio:2.218/1;isolation:isolate;min-height:calc(var(--rows,19) * 1.97cqw + 8.3cqw);
   padding:3.9cqw 0 4.4cqw;display:flex;flex-direction:column;color:var(--ink)}
 .paper-sh{position:absolute;inset:0;z-index:-1;pointer-events:none;
   filter:drop-shadow(0 0 .07cqw rgba(105,62,20,.9)) drop-shadow(0 6px 14px rgba(0,0,0,.55)) drop-shadow(0 1px 2px rgba(0,0,0,.4))}
@@ -776,6 +790,8 @@ main{padding:.5rem 0 4rem}
 .lines{position:relative;flex:1}
 .row{display:grid;grid-template-columns:var(--lm) var(--gut) minmax(0,1fr) var(--gut) var(--rm);
   height:1.97cqw;align-items:end;position:relative}
+body.deva-ink .tx{-webkit-text-stroke:.022em currentColor}
+body.deva-ink .mnote{-webkit-text-stroke:.012em currentColor}
 .tx{grid-column:3;align-self:stretch;font-size:1.46cqw;line-height:1;white-space:nowrap;position:relative;min-width:0;
   font-weight:600;letter-spacing:-.005em}
 .tx-in{position:absolute;left:0;bottom:.2em;height:1em;display:inline-block;transform-origin:0 50%;white-space:nowrap}
@@ -901,7 +917,7 @@ body.reading .add .up-t::after,body.reading .add .down-t::after{display:none}
   @page{size:A4 landscape;margin:8mm}
   body{background:#fff}
   .bar,.legend,.intro,.facs,#tip{display:none!important}
-  .folio{break-after:page;page-break-after:always;margin:0 auto;padding:0;max-width:none}
+  .folio{break-after:page;page-break-after:always;margin:0 auto;padding:0;max-width:none;content-visibility:visible}
   .folio-head{color:#555}.flabel{color:#222}
   .paper-sh{filter:none}
   .paper,.red,.rule{-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -913,34 +929,46 @@ body.reading .add .up-t::after,body.reading .add .down-t::after{display:none}
 JS = r"""
 (function(){
   const B=document.body; B.classList.add('js');
-  const leaves=[...document.querySelectorAll('.leaf')];
   const fs=el=>parseFloat(getComputedStyle(el).fontSize)||16;
 
+  /* --- lazy folios: each leaf's text arrives as inert raw text
+         (<script type="text/x-folio">) and becomes DOM only when needed --- */
+  function hydrate(leaf){
+    const src=leaf.querySelector('script[type="text/x-folio"]');
+    if(!src) return false;
+    leaf.insertAdjacentHTML('beforeend',src.textContent);
+    src.remove();
+    leaf.dataset.dirty='1';
+    return true;
+  }
+
   /* --- fit each manuscript line to the writing block, as the scribe did --- */
-  function fit(){
+  function fit(list){
+    list=list.filter(l=>!l.querySelector('script[type="text/x-folio"]'));
+    if(!list.length) return;
     const rows=[];
-    leaves.forEach(l=>l.querySelectorAll('.tx').forEach(tx=>{
+    list.forEach(l=>l.querySelectorAll('.tx').forEach(tx=>{
       const inn=tx.firstElementChild; inn.style.transform=''; inn.style.wordSpacing=''; inn.style.letterSpacing='';
       rows.push({tx,inn});
     }));
     rows.forEach(r=>{r.avail=r.tx.clientWidth-1; r.nat=r.inn.getBoundingClientRect().width; r.f=fs(r.tx);
-      r.spaces=(r.inn.innerText.match(/ /g)||[]).length; r.last=!r.tx.parentElement.nextElementSibling;});
+      const t=r.inn.textContent; r.len=t.length; r.spaces=(t.match(/ /g)||[]).length; r.last=!r.tx.parentElement.nextElementSibling;});
     rows.forEach(r=>{
       if(!r.nat) return;
       const d=r.avail-r.nat;
       if(d>0 && !(r.last && d>r.avail*.25)){
         if(r.spaces) r.inn.style.wordSpacing=Math.min(d/r.spaces,r.f*.9)+'px';
-        else r.inn.style.letterSpacing=Math.min(d/Math.max(r.inn.innerText.length,1),r.f*.4)+'px';
+        else r.inn.style.letterSpacing=Math.min(d/Math.max(r.len,1),r.f*.4)+'px';
       }
     });
     rows.forEach(r=>{r.nat2=r.inn.getBoundingClientRect().width;});
     rows.forEach(r=>{ if(r.nat2>r.avail+.5) r.inn.style.transform='scaleX('+(r.avail/r.nat2).toFixed(4)+')'; });
-    placeMargins();
+    list.forEach(placeMargins);
+    list.forEach(l=>delete l.dataset.dirty);
   }
 
   /* --- keep marginal notes from overlapping, place top/bottom notes over their anchors --- */
-  function placeMargins(){
-    leaves.forEach(leaf=>{
+  function placeMargins(leaf){
       const L=leaf.getBoundingClientRect();
       ['.ml .mstack','.mr .mstack'].forEach(sel=>{
         let last=-1e9;
@@ -957,10 +985,11 @@ JS = r"""
         const box=leaf.querySelector(sel); if(!box) return;
         const notes=[...box.children]; if(!notes.length) return;
         const R=box.getBoundingClientRect();
-        let rows=[]; let maxBottom=0;
+        let rows=[];
         notes.forEach(n=>{
           n.style.left='0px'; n.style.top='0px';
-          const w=n.getBoundingClientRect().width, h=n.getBoundingClientRect().height;
+          const nr=n.getBoundingClientRect(), w=nr.width, h=nr.height;
+          if(!w) return;
           const a=leaf.querySelector('.caret[data-link="'+n.dataset.link+'"]');
           let cx=R.width/2;
           if(a){const ar=a.getBoundingClientRect(); cx=ar.left-R.left;}
@@ -972,8 +1001,48 @@ JS = r"""
           n.style.left=x+'px'; n.style.top=y+'px';
         });
       });
-    });
   }
+
+  /* --- work only near the viewport; hydrate the rest in idle time --- */
+  const leaves=[...document.querySelectorAll('.leaf')];
+  // real leaf width, so skipped folios reserve exactly their rendered height
+  const setLeafW=()=>{ const w=document.querySelector('.leaf-wrap'); w&&document.documentElement.style.setProperty('--leafw',w.clientWidth+'px'); };
+  setLeafW();
+  leaves.forEach(l=>{ if(!l.querySelector('script[type="text/x-folio"]')) l.dataset.dirty='1'; });
+  const near=new Set();
+  let jumpTarget=null;                     // folio just jumped to: keep it aligned while its
+  function service(){                      // neighbours settle into their real heights
+    const todo=[...near].filter(l=>{ hydrate(l); return l.dataset.dirty; });
+    fit(todo);
+    if(jumpTarget && todo.length) jumpTarget.scrollIntoView({behavior:'instant'});
+  }
+  ['wheel','touchstart','mousedown'].forEach(ev=>addEventListener(ev,()=>{jumpTarget=null;},{passive:true}));
+  let pend=0; const schedule=()=>{ if(!pend) pend=requestAnimationFrame(()=>{pend=0;service();}); };
+  if('IntersectionObserver' in window){
+    const lio=new IntersectionObserver(es=>{
+      es.forEach(e=>{ if(e.isIntersecting) near.add(e.target); else near.delete(e.target); });
+      schedule();
+    },{rootMargin:'120% 0px 160% 0px'});
+    leaves.forEach(l=>lio.observe(l));
+  } else { leaves.forEach(l=>near.add(l)); schedule(); }
+  // fit what is on screen right away, before the first frame is painted
+  for(const l of leaves){
+    const r=l.getBoundingClientRect();
+    if(r.top>innerHeight*1.5) break;
+    if(r.bottom>-innerHeight*0.5) near.add(l);
+  }
+  service();
+  const idle=window.requestIdleCallback||(f=>setTimeout(()=>f({timeRemaining:()=>8}),40));
+  let bgIndex=0;
+  (function background(dl){
+    while(bgIndex<leaves.length && dl.timeRemaining()>3) hydrate(leaves[bgIndex++]);
+    if(bgIndex<leaves.length) idle(background);
+  })({timeRemaining:()=>0});
+  function refresh(){                      // after a mode change, resize or font swap
+    leaves.forEach(l=>{ if(!l.querySelector('script[type="text/x-folio"]')) l.dataset.dirty='1'; });
+    schedule();
+  }
+  window.addEventListener('beforeprint',()=>{ leaves.forEach(hydrate); fit(leaves); });
 
   /* --- toggles --- */
   const st=k=>{try{return localStorage.getItem('msv2:'+k)}catch(e){return null}};
@@ -982,22 +1051,25 @@ JS = r"""
     const el=document.getElementById(id); if(!el) return;
     const v=st(cls); el.checked = v===null ? def : v==='1';
     B.classList.toggle(cls,el.checked);
-    el.addEventListener('change',()=>{B.classList.toggle(cls,el.checked); ss(cls,el.checked?'1':'0'); fit();});
+    el.addEventListener('change',()=>{B.classList.toggle(cls,el.checked); ss(cls,el.checked?'1':'0'); refresh();});
   }
   bindToggle('t-ed','ed-on',true);
   bindToggle('t-ln','lnos',false);
   const mode=st('mode')||'dipl';
   function setMode(m){B.classList.toggle('reading',m==='read');
     document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.mode===m));ss('mode',m);}
-  document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{setMode(b.dataset.mode);fit();}));
+  document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{setMode(b.dataset.mode);refresh();}));
   setMode(mode);
   const lg=document.getElementById('t-legend'), legend=document.querySelector('.legend');
   lg&&lg.addEventListener('click',()=>legend.classList.toggle('open'));
 
   /* --- navigation --- */
   const sel=document.getElementById('goto');
-  sel&&sel.addEventListener('change',()=>{const t=document.getElementById(sel.value); t&&t.scrollIntoView();});
-  const folios=[...document.querySelectorAll('.folio')];
+  // jump instantly, then once more after the folios around the target have settled
+  let jt; const go=t=>{ if(!t) return; jumpTarget=t; t.scrollIntoView({behavior:'instant'});
+    clearTimeout(jt); jt=setTimeout(()=>{jumpTarget=null;},1500); };
+  sel&&sel.addEventListener('change',()=>go(document.getElementById(sel.value)));
+  const folios=[...document.querySelectorAll('section.folio')];
   if('IntersectionObserver' in window && sel){
     const io=new IntersectionObserver(es=>{es.forEach(e=>{if(e.isIntersecting) sel.value=e.target.id;});},{rootMargin:'-45% 0px -50% 0px'});
     folios.forEach(f=>io.observe(f));
@@ -1006,7 +1078,7 @@ JS = r"""
     if(e.target.closest('input,select,textarea')) return;
     if(e.key!=='j'&&e.key!=='k') return;
     const y=window.scrollY+80; let i=folios.findIndex(f=>f.offsetTop>y)-1; if(i<-1) i=folios.length-1; if(i<0) i=0;
-    const t=e.key==='j'?folios[Math.min(i+1,folios.length-1)]:folios[Math.max(i-1,0)]; t.scrollIntoView();
+    go(e.key==='j'?folios[Math.min(i+1,folios.length-1)]:folios[Math.max(i-1,0)]);
   });
 
   /* --- linked highlighting: marginal note <-> insertion point --- */
@@ -1026,7 +1098,7 @@ JS = r"""
     const c=els.find(x=>x.classList.contains('caret'));
     const n=els.find(x=>x.classList.contains('mnote'))||els.find(x=>x.tagName==='LI');
     if(!c||!n||!c.offsetParent||!n.offsetParent){svg.style.display='none';return;}
-    const box=c.closest('.folio'); if(svg.parentNode!==box) box.appendChild(svg);
+    const box=c.closest('section.folio'); if(svg.parentNode!==box) box.appendChild(svg);
     const B=box.getBoundingClientRect();
     const rel=r=>({left:r.left-B.left,right:r.right-B.left,top:r.top-B.top,bottom:r.bottom-B.top,width:r.width,height:r.height});
     const cr=rel(c.getBoundingClientRect()), nr=rel(n.getBoundingClientRect());
@@ -1079,9 +1151,13 @@ JS = r"""
     if(x+w>innerWidth-8) x=innerWidth-w-8; if(y+h>innerHeight-8) y=e.clientY-h-12;
     tip.style.left=x+'px'; tip.style.top=y+'px';});
 
-  let to; window.addEventListener('resize',()=>{clearTimeout(to); to=setTimeout(fit,150);});
-  (document.fonts&&document.fonts.ready?document.fonts.ready:Promise.resolve()).then(fit);
-  fit();
+  let to; window.addEventListener('resize',()=>{clearTimeout(to); to=setTimeout(()=>{setLeafW(); refresh();},150);});
+  // thicken the strokes only when the manuscript face (e.g. Siddhanta) is really available
+  if(document.fonts&&document.fonts.load&&B.dataset.ink){
+    document.fonts.load('16px "MS Deva"','क').then(f=>{ if(f.length){ B.classList.add('deva-ink'); refresh(); } }).catch(()=>{});
+  }
+  if(document.fonts){ document.fonts.addEventListener&&document.fonts.addEventListener('loadingdone',refresh);
+    document.fonts.ready.then(refresh); }
 })();
 """
 
@@ -1101,8 +1177,28 @@ LEGEND = [
 ]
 
 
-def build_html(ctx, title, subtitle, pdf_rel, stats):
-    pages_html = [render_page(p, pdf_rel) for p in ctx.pages]
+def font_face(font, font_file, scale):
+    """@font-face for the manuscript text face, aliased as "MS Deva" so that
+    its size adjustment applies only when that face is actually used."""
+    if not font or font.lower() == "none":
+        return ""
+    srcs = [f'local("{font}")']
+    if font_file:
+        import base64
+        ext = os.path.splitext(font_file)[1].lower().lstrip(".") or "ttf"
+        fmt = {"ttf": "truetype", "otf": "opentype", "woff": "woff", "woff2": "woff2"}.get(ext, "truetype")
+        mime = {"ttf": "font/ttf", "otf": "font/otf", "woff": "font/woff", "woff2": "font/woff2"}.get(ext, "font/ttf")
+        with open(font_file, "rb") as fh:
+            data = base64.b64encode(fh.read()).decode("ascii")
+        srcs.append(f'url(data:{mime};base64,{data}) format("{fmt}")')
+    return (f'@font-face{{font-family:"MS Deva";src:{",".join(srcs)};'
+            f'size-adjust:{scale:g}%;ascent-override:88%;descent-override:28%;line-gap-override:0%;'
+            f'font-display:swap}}')
+
+
+def build_html(ctx, title, subtitle, pdf_rel, stats, font="Siddhanta", font_file=None, font_scale=107):
+    # the first folios are written out directly so they show before any script runs
+    pages_html = [render_page(p, pdf_rel, lazy=k >= 2) for k, p in enumerate(ctx.pages)]
     opts = "".join(
         f'<option value="p{p.seq}">{escape(folio_label(p.n))} · {escape(p.n)}</option>'
         for p in ctx.pages if p.n and (p.lines or p.apparatus)
@@ -1116,11 +1212,11 @@ def build_html(ctx, title, subtitle, pdf_rel, stats):
 <title>{escape(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>{CSS}</style>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<style>{font_face(font, font_file, font_scale)}{CSS}</style>
 <style>{leaf_styles(ctx.pages)}</style>
 </head>
-<body class="ed-on">
+<body class="ed-on"{' data-ink="1"' if font and font.lower() != 'none' else ''}>
 <div class="bar ui">
   <h1 title="{attr(title)}">{escape(title)}</h1>
   <span class="seg" role="group" aria-label="Text mode">
@@ -1161,7 +1257,7 @@ def find_pdf(infile):
     return None
 
 
-def convert(infile, outfile, pdf=None, only=None):
+def convert(infile, outfile, pdf=None, only=None, font="Siddhanta", font_file=None, font_scale=107):
     root = ET.parse(infile).getroot()
 
     biblio = {}
@@ -1201,7 +1297,7 @@ def convert(infile, outfile, pdf=None, only=None):
     n_lines = sum(len(p.lines) for p in ctx.pages)
     stats = f"{n_pages} folio sides · {n_lines} lines"
 
-    html = build_html(ctx, title, subtitle, pdf_rel, stats)
+    html = build_html(ctx, title, subtitle, pdf_rel, stats, font, font_file, font_scale)
     with open(outfile, "w", encoding="utf-8") as fh:
         fh.write(html)
     print(f"Wrote {outfile}  ({stats})")
@@ -1223,6 +1319,10 @@ def main():
     g.add_argument("--pdf", help="facsimile PDF to link each folio to (default: <input stem>.pdf found in a parent directory)")
     g.add_argument("--no-pdf", action="store_true", help="do not link to a facsimile PDF")
     ap.add_argument("--pages", help="render only these folio sides, e.g. 0001_2,0002_1 or 0010_1-0012_2")
+    ap.add_argument("--font", default="Siddhanta",
+                    help="installed Devanagari font for the manuscript text (default: Siddhanta; 'none' uses Noto Serif Devanagari)")
+    ap.add_argument("--font-file", help="embed this font file (.ttf/.otf/.woff2) in the HTML, for readers who do not have the font installed")
+    ap.add_argument("--font-scale", type=float, default=107, help="size adjustment for that font, in percent (default: 107)")
     a = ap.parse_args()
 
     out = a.output or os.path.splitext(os.path.basename(a.input))[0] + "_manuscript.html"
@@ -1240,7 +1340,7 @@ def main():
         only = {x for x in only if isinstance(x, str)}
         if ranges:
             only = _RangeSet(only, ranges)
-    convert(a.input, out, pdf, only)
+    convert(a.input, out, pdf, only, a.font, a.font_file, a.font_scale)
 
 
 class _RangeSet:
